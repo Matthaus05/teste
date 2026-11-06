@@ -38,6 +38,17 @@ function replaceGlobal(t, key, descriptor) {
   });
 }
 
+function keyboard(t) {
+  const fakeWindow = new EventTarget();
+  replaceGlobal(t, 'window', { value: fakeWindow });
+  return (code, type = 'keydown') => {
+    const event = new Event(type, { cancelable: true });
+    Object.defineProperty(event, 'code', { value: code });
+    fakeWindow.dispatchEvent(event);
+    return event;
+  };
+}
+
 test('a new mission starts clean and restarting restores the ship and removes the previous battle', (t) => {
   const snapshots = [];
   const game = newGame(t, { onChange: (value) => snapshots.push(value) });
@@ -139,6 +150,29 @@ test('fast projectiles still hit an enemy they cross between frames', (t) => {
   game.update(0.05);
   assert.equal(game.enemies.length, 0);
   assert.equal(game.score, 100);
+});
+
+test('a normal shot hits the nearest intersecting enemy regardless of creation order', (t) => {
+  const game = newGame(t);
+  game.start();
+  game.enemies = [enemy(366, { hp: 1 }), enemy(326, { hp: 1 })];
+  game.bullets.push({ x: 300, y: 300, vx: 880, vy: 0, radius: 4, damage: 1, life: 1 });
+  game.update(0.05);
+  assert.deepEqual(game.enemies.map((target) => target.id), [366]);
+  assert.equal(game.kills, 1);
+});
+
+test('a charged beam uses its pierce limit on the nearest targets first', (t) => {
+  const game = newGame(t);
+  game.start();
+  game.enemies = [enemy(600), enemy(500), enemy(450), enemy(400)];
+  game.bullets.push({
+    x: 300, y: 300, vx: 7000, vy: 0, radius: 26, damage: 15, life: 1,
+    charged: true, pierce: 3, hitIds: new Set(),
+  });
+  game.update(0.05);
+  assert.deepEqual(game.enemies.map((target) => target.id), [600]);
+  assert.equal(game.kills, 3);
 });
 
 test('damage grants a grace period and reaching zero shield ends the mission', (t) => {
@@ -297,4 +331,95 @@ test('keyboard movement works after focusing a button while native button keys a
   assert.equal(game.input.charge, false);
   assert.equal(key('KeyP', button).defaultPrevented, true);
   assert.equal(game.state, 'paused');
+});
+
+test('equivalent keys and touch controls keep an action active until its last source is released', (t) => {
+  const key = keyboard(t);
+  const game = newGame(t);
+  game.start();
+  key('KeyW');
+  key('ArrowUp');
+  key('KeyW', 'keyup');
+  game.update(0.05);
+  assert.equal(game.input.up, true);
+  assert(game.player.y < 300);
+  key('ArrowUp', 'keyup');
+  assert.equal(game.input.up, false);
+
+  key('Space');
+  key('KeyZ');
+  key('Space', 'keyup');
+  assert.equal(game.input.fire, true);
+  game.setInput('fire', true, 'pointer:1');
+  key('KeyZ', 'keyup');
+  assert.equal(game.input.fire, true);
+  game.cancelInput('fire', 'pointer:1');
+  assert.equal(game.input.fire, false);
+  game.setInput('toString', true);
+  assert.equal(Object.hasOwn(game.input, 'toString'), false);
+});
+
+test('canceling the final charge input discards the charge while canceling another source preserves it', (t) => {
+  const game = newGame(t);
+  game.start();
+  game.setInput('charge', true, 'key:KeyX');
+  advance(game, 1.4);
+  game.setInput('charge', true, 'pointer:1');
+  game.cancelInput('charge', 'pointer:1');
+  assert.equal(game.player.charge, 1);
+  assert.equal(game.input.charge, true);
+  assert.equal(game.bullets.length, 0);
+  game.setInput('charge', false, 'key:KeyX');
+  assert.equal(game.bullets.filter((bullet) => bullet.charged).length, 1);
+
+  game.setInput('charge', true, 'pointer:2');
+  advance(game, 0.4);
+  const before = game.bullets.length;
+  game.cancelInput('charge', 'pointer:2');
+  assert.equal(game.player.charge, 0);
+  assert.equal(game.input.charge, false);
+  assert.equal(game.bullets.length, before);
+});
+
+test('holding fire has the same cadence at 30, 60 and 120 updates per second', (t) => {
+  const counts = [30, 60, 120].map((frequency) => {
+    let shots = 0;
+    const game = newGame(t, { onSound: (sound) => { if (sound === 'shoot') shots += 1; } });
+    game.start();
+    game._spawnTimer = Infinity;
+    game.setInput('fire', true);
+    advance(game, 10, 1 / frequency);
+    return shots;
+  });
+  assert(Math.max(...counts) - Math.min(...counts) <= 1, `Shot counts: ${counts}`);
+  assert(counts.every((count) => count >= 68 && count <= 70));
+});
+
+test('a stale tab cannot overwrite a higher record saved by another tab', (t) => {
+  const values = new Map();
+  replaceGlobal(t, 'localStorage', { value: {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+  } });
+  const first = newGame(t);
+  const stale = newGame(t);
+  first.start();
+  stale.start();
+  first.score = 9000;
+  first.restart();
+  stale.score = 100;
+  stale.restart();
+  assert.equal(values.get('rtype-nebula-best'), '9000');
+  assert.equal(stale.best, 9000);
+});
+
+test('arrow keys keep their native scrolling behavior outside an active mission', (t) => {
+  const key = keyboard(t);
+  const game = newGame(t);
+  assert.equal(key('ArrowDown').defaultPrevented, false);
+  game.start();
+  assert.equal(key('ArrowDown').defaultPrevented, true);
+  game.pause();
+  assert.equal(key('ArrowDown').defaultPrevented, false);
+  assert.equal(game.input.down, false);
 });

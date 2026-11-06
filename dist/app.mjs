@@ -13,7 +13,7 @@ let muted = false;
 try { muted = localStorage.getItem('rtype-nebula-muted') === 'true'; } catch {}
 
 class AudioSystem {
-  constructor() { this.context = null; this.lastShot = 0; }
+  constructor() { this.context = null; this.lastShot = 0; this.voices = new Set(); }
   unlock() {
     if (muted) return;
     try {
@@ -28,6 +28,13 @@ class AudioSystem {
     const now = this.context.currentTime + delay;
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
+    const voice = { oscillator, gain };
+    this.voices.add(voice);
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      gain.disconnect();
+      this.voices.delete(voice);
+    };
     oscillator.type = type;
     oscillator.frequency.setValueAtTime(frequency, now);
     oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), now + duration);
@@ -36,6 +43,14 @@ class AudioSystem {
     gain.gain.exponentialRampToValueAtTime(.0001, now + duration);
     oscillator.connect(gain); gain.connect(this.context.destination);
     oscillator.start(now); oscillator.stop(now + duration + .01);
+  }
+  silence() {
+    for (const { oscillator, gain } of this.voices) {
+      try { oscillator.stop(); } catch {}
+      oscillator.disconnect();
+      gain.disconnect();
+    }
+    this.voices.clear();
   }
   play(name) {
     if (muted || !this.context) return;
@@ -86,6 +101,7 @@ function renderStatus(snapshot) {
   if (previousState === state) return;
   const enteringMission = state === 'playing' && previousState === 'menu';
   previousState = state;
+  if (state === 'paused') audio.silence();
   arcade.dataset.state = state;
   overlay.hidden = state === 'playing';
   if (enteringMission) requestAnimationFrame(() => {
@@ -124,13 +140,14 @@ $('sound-button').addEventListener('click', (event) => {
   muted = !muted;
   game.setMuted(muted);
   updateSoundButton();
-  if (!muted) { audio.unlock(); audio.play('pickup'); }
+  if (muted) audio.silence();
+  else { audio.unlock(); audio.play('pickup'); }
   try { localStorage.setItem('rtype-nebula-muted', String(muted)); } catch {}
-  event.currentTarget.blur();
+  if (game.state === 'playing') $('game').focus({ preventScroll: true });
 });
-$('play-button').addEventListener('click', (event) => { audio.unlock(); game.start(); event.currentTarget.blur(); });
-$('restart-button').addEventListener('click', (event) => { audio.unlock(); game.restart(); event.currentTarget.blur(); });
-$('pause-button').addEventListener('click', (event) => { audio.unlock(); game.pause(); event.currentTarget.blur(); });
+$('play-button').addEventListener('click', () => { audio.unlock(); game.start(); $('game').focus({ preventScroll: true }); });
+$('restart-button').addEventListener('click', () => { audio.unlock(); game.restart(); $('game').focus({ preventScroll: true }); });
+$('pause-button').addEventListener('click', () => { audio.unlock(); game.pause(); (game.state === 'paused' ? $('play-button') : $('game')).focus({ preventScroll: true }); });
 document.addEventListener('keydown', () => audio.unlock(), { capture: true });
 document.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 
@@ -145,19 +162,26 @@ for (const id of ['help-button', 'manual-button']) $(id).addEventListener('click
 for (const id of ['close-manual', 'manual-done']) $(id).addEventListener('click', () => manual.close());
 manual.addEventListener('click', (event) => { if (event.target === manual) { const r = manual.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) manual.close(); } });
 manual.addEventListener('close', () => {
-  document.activeElement?.blur?.();
-  if (resumeAfterManual && game.state === 'paused') game.start();
+  if (resumeAfterManual && game.state === 'paused') {
+    game.start();
+    $('game').focus({ preventScroll: true });
+  }
   resumeAfterManual = false;
 });
 
 $('fullscreen-button').addEventListener('click', async (event) => {
   event.currentTarget.blur();
-  try {
-    if (document.fullscreenElement) await document.exitFullscreen();
-    else if (arcade.requestFullscreen) await arcade.requestFullscreen();
-    else arcade.classList.toggle('expanded');
-  } catch { arcade.classList.toggle('expanded'); }
+  if (document.fullscreenElement) {
+    try { await document.exitFullscreen(); } catch {}
+  } else if (arcade.classList.contains('expanded')) arcade.classList.remove('expanded');
+  else {
+    try {
+      if (arcade.requestFullscreen) await arcade.requestFullscreen();
+      else arcade.classList.add('expanded');
+    } catch { arcade.classList.add('expanded'); }
+  }
   updateFullscreenButton();
+  if (game.state === 'playing') $('game').focus({ preventScroll: true });
 });
 function updateFullscreenButton() {
   const expanded = Boolean(document.fullscreenElement || arcade.classList.contains('expanded'));
@@ -165,7 +189,7 @@ function updateFullscreenButton() {
   $('fullscreen-button').setAttribute('aria-label', expanded ? 'Sair da tela cheia' : 'Abrir tela cheia');
 }
 document.addEventListener('fullscreenchange', updateFullscreenButton);
-document.addEventListener('keydown', (event) => { if (event.code === 'Escape' && arcade.classList.contains('expanded')) { arcade.classList.remove('expanded'); updateFullscreenButton(); } });
+document.addEventListener('keydown', (event) => { if (event.code === 'Escape' && !manual.open && arcade.classList.contains('expanded')) { arcade.classList.remove('expanded'); updateFullscreenButton(); } });
 
 const touchPointers = new Map();
 for (const button of document.querySelectorAll('[data-action]')) {
@@ -174,13 +198,16 @@ for (const button of document.querySelectorAll('[data-action]')) {
     if (game.state !== 'playing') return;
     button.setPointerCapture(event.pointerId);
     touchPointers.set(event.pointerId, button.dataset.action);
-    game.setInput(button.dataset.action, true);
+    game.setInput(button.dataset.action, true, `pointer:${event.pointerId}`);
     button.blur();
   });
   const release = (event) => {
     const action = touchPointers.get(event.pointerId);
     touchPointers.delete(event.pointerId);
-    if (action && ![...touchPointers.values()].includes(action)) game.setInput(action, false);
+    if (!action) return;
+    const source = `pointer:${event.pointerId}`;
+    if (event.type === 'pointerup') game.setInput(action, false, source);
+    else game.cancelInput(action, source);
   };
   button.addEventListener('pointerup', release);
   button.addEventListener('pointercancel', release);

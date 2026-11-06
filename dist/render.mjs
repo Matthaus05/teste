@@ -32,6 +32,7 @@ export class Renderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.time = 0;
+    this.scrollTime = 0;
     const random = seeded(40723);
     this.stars = Array.from({ length: 170 }, () => ({
       x: random() * 1200,
@@ -134,7 +135,7 @@ export class Renderer {
   background(game) {
     const ctx = this.ctx;
     ctx.drawImage(this.backdrop, 0, 0);
-    const drift = this.time * (game.state === 'playing' ? 1 : .35);
+    const drift = this.scrollTime;
     for (const star of this.stars) {
       const x = ((star.x - drift * (8 + star.z * 34)) % 1200 + 1200) % 1200;
       const alpha = .22 + star.z * .5 + Math.sin(this.time * .8 + star.phase) * .09;
@@ -317,7 +318,11 @@ export class Renderer {
   }
 
   render(game, dt=1/60) {
-    this.time+=Math.min(Math.max(dt||0,0),.05);
+    const elapsed = Math.min(Math.max(dt || 0, 0), .05);
+    if (game.state !== 'paused') {
+      this.time += elapsed;
+      this.scrollTime += elapsed * (game.state === 'playing' ? 1 : .35);
+    }
     const ctx=this.ctx;
     ctx.setTransform(this.canvas.width/1200,0,0,this.canvas.height/600,0,0);
     ctx.globalAlpha=1;ctx.globalCompositeOperation='source-over';

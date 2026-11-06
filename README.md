@@ -33,4 +33,12 @@ Atravesse três setores de 22 segundos e derrote o guardião de Órion. Colete o
 npm test
 ```
 
+Os testes cobrem as regras da partida e as respostas HTTP do servidor local. Para testar a interface em Chrome ou Edge, mantenha `npm start` aberto e, em outro terminal com Node.js 22 ou superior, execute:
+
+```sh
+npm run test:browser
+```
+
+O teste usa um navegador em modo invisível e grava os resultados e capturas em `artifacts/`. Se o navegador não estiver em um caminho padrão, informe o executável na variável `CHROME_PATH`.
+
 O motor (`dist/game.mjs`), o renderizador (`dist/render.mjs`) e a interface (`dist/app.mjs`) são módulos separados. Os arquivos prontos para publicação estão em `dist`.

@@ -10,15 +10,26 @@ export function circlesOverlap(a, b) {
   return (a.x - b.x) ** 2 + (a.y - b.y) ** 2 <= radius ** 2;
 }
 
-function bulletHits(bullet, target) {
+function bulletHitTime(bullet, target) {
   const start = bullet.previousX ?? bullet.x;
   const startY = bullet.previousY ?? bullet.y;
   const dx = bullet.x - start;
   const dy = bullet.y - startY;
+  const offsetX = start - target.x;
+  const offsetY = startY - target.y;
+  const radius = (bullet.radius || 0) + (target.radius || 0);
+  const outside = offsetX * offsetX + offsetY * offsetY - radius * radius;
+  if (outside <= 0) return 0;
   const length = dx * dx + dy * dy;
-  const t = length ? clamp(((target.x - start) * dx + (target.y - startY) * dy) / length, 0, 1) : 0;
-  return circlesOverlap({ x: start + t * dx, y: startY + t * dy, radius: bullet.radius }, target);
+  if (!length) return null;
+  const approach = offsetX * dx + offsetY * dy;
+  const discriminant = approach * approach - length * outside;
+  if (discriminant < 0) return null;
+  const time = (-approach - Math.sqrt(discriminant)) / length;
+  return time >= 0 && time <= 1 ? time : null;
 }
+
+const bulletHits = (bullet, target) => bulletHitTime(bullet, target) !== null;
 
 export function createInitialState() {
   return {
@@ -43,6 +54,7 @@ export class Game {
     this.onSound = onSound;
     this.best = this._readBest();
     this.input = { up: false, down: false, left: false, right: false, fire: false, charge: false };
+    this._inputSources = Object.fromEntries(Object.keys(this.input).map((action) => [action, new Set()]));
     this.muted = false;
     this._spawnTimer = 0.9;
     this._emitTimer = 0;
@@ -74,7 +86,7 @@ export class Game {
   }
 
   _saveBest() {
-    this.best = Math.max(this.best, this.score);
+    this.best = Math.max(this.best, this.score, this._readBest());
     try { globalThis.localStorage?.setItem(BEST_KEY, String(this.best)); } catch { /* Storage may be disabled. */ }
   }
 
@@ -120,15 +132,32 @@ export class Game {
     this._emit();
   }
 
-  setInput(action, pressed) {
-    if (!(action in this.input)) return;
+  setInput(action, pressed, source = 'external') {
+    this._setInput(action, pressed, source, false);
+  }
+
+  cancelInput(action, source = 'external') {
+    this._setInput(action, false, source, true);
+  }
+
+  _setInput(action, pressed, source, canceled) {
+    if (!Object.hasOwn(this.input, action)) return;
     const wasPressed = this.input[action];
-    this.input[action] = Boolean(pressed);
-    if (action === 'charge' && wasPressed && !pressed && this.state === 'playing') this._releaseCharge();
+    const sources = this._inputSources[action];
+    if (pressed) sources.add(source);
+    else sources.delete(source);
+    this.input[action] = sources.size > 0;
+    if (action === 'charge' && wasPressed && !this.input[action]) {
+      if (canceled || this.state !== 'playing') this.player.charge = 0;
+      else this._releaseCharge();
+    }
   }
 
   releaseInputs() {
-    for (const action of Object.keys(this.input)) this.input[action] = false;
+    for (const action of Object.keys(this.input)) {
+      this._inputSources[action].clear();
+      this.input[action] = false;
+    }
     this.player.charge = 0;
   }
 
@@ -151,17 +180,23 @@ export class Game {
     bind(window, 'keydown', (event) => {
       if (ignored(event) || event.ctrlKey || event.metaKey || event.altKey) return;
       const action = keyMap[event.code];
-      if (action || ['Enter', 'KeyP', 'Escape', 'KeyR'].includes(event.code)) event.preventDefault();
+      const canStart = ['menu', 'gameover', 'victory'].includes(this.state);
+      const canPause = this.state === 'playing' || this.state === 'paused';
+      if ((action && this.state === 'playing') ||
+          (event.code === 'Enter' && (canStart || this.state === 'paused')) ||
+          (event.code === 'Space' && canStart) ||
+          (['KeyP', 'Escape'].includes(event.code) && canPause) ||
+          (event.code === 'KeyR' && ['gameover', 'victory', 'paused'].includes(this.state))) event.preventDefault();
       if (event.repeat) return;
       if (event.code === 'Enter' && this.state === 'paused') this.start();
       else if ((event.code === 'Enter' || event.code === 'Space') && ['menu', 'gameover', 'victory'].includes(this.state)) this.start();
       else if (event.code === 'KeyP' || event.code === 'Escape') this.pause();
       else if (event.code === 'KeyR' && ['gameover', 'victory', 'paused'].includes(this.state)) this.restart();
-      if (action && this.state === 'playing') this.setInput(action, true);
+      if (action && this.state === 'playing') this.setInput(action, true, `key:${event.code}`);
     });
     bind(window, 'keyup', (event) => {
       const action = keyMap[event.code];
-      if (action) this.setInput(action, false);
+      if (action) this.setInput(action, false, `key:${event.code}`);
     });
     const leave = () => {
       this.releaseInputs();
@@ -231,8 +266,9 @@ export class Game {
     p.thrust = dx;
     p.bank += (dy - p.bank) * Math.min(1, dt * 10);
     p.invulnerable = Math.max(0, p.invulnerable - dt);
-    p.fireCooldown = Math.max(0, p.fireCooldown - dt);
+    p.fireCooldown -= dt;
     if (this.input.fire && p.fireCooldown <= 0) this._fire();
+    else if (!this.input.fire) p.fireCooldown = Math.max(0, p.fireCooldown);
     if (this.input.charge) {
       const previous = p.charge;
       p.charge = Math.min(1, p.charge + dt / 1.35);
@@ -251,7 +287,7 @@ export class Game {
         charged: false,
       });
     }
-    p.fireCooldown = 0.145;
+    p.fireCooldown += 0.145;
     this._sound('shoot');
   }
 
@@ -405,8 +441,14 @@ export class Game {
     for (const bullet of this.bullets) {
       if (bullet.life <= 0) continue;
       const targets = this.boss ? [...this.enemies, this.boss] : this.enemies;
+      const hits = [];
       for (const target of targets) {
-        if (target.hp <= 0 || bullet.hitIds?.has(target.id) || !bulletHits(bullet, target)) continue;
+        if (target.hp <= 0 || bullet.hitIds?.has(target.id)) continue;
+        const time = bulletHitTime(bullet, target);
+        if (time !== null) hits.push({ target, time });
+      }
+      hits.sort((a, b) => a.time - b.time);
+      for (const { target } of hits) {
         target.hp = Math.max(0, target.hp - bullet.damage);
         target.lastHit = 0.09;
         this._explode(bullet.x, bullet.y, bullet.charged ? '#96f6ff' : '#ffc778', bullet.charged ? 9 : 3, 0.2);
