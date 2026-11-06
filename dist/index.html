@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101216">
+  <meta name="description" content="Pilote sua nave pelo cinturão de Órion. Um jogo de tiro espacial com canhão carregado, melhorias e um chefão para enfrentar.">
+  <title>R-Type: Nebula — Arcade espacial</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Nebula, início">
+        <svg class="brand-mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M5 29 16 9h8l11 20H5Z" stroke="currentColor" stroke-width="2"/><path d="m14 29 6-11 6 11M20 3v7M2 34h36" stroke="currentColor" stroke-width="2"/></svg>
+        <span>NEBULA<small>ARCADE FLIGHT SYSTEM</small></span>
+      </a>
+      <div class="header-actions">
+        <span class="system-status"><i></i> SISTEMAS ONLINE</span>
+        <button class="icon-button" id="help-button" title="Como jogar" aria-label="Como jogar"><span aria-hidden="true">?</span></button>
+        <button class="icon-button" id="sound-button" title="Desativar som" aria-label="Desativar som" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m11 5-6 4H2v6h3l6 4V5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path class="sound-waves" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path class="sound-slash" d="m15 9 6 6m0-6-6 6" stroke="currentColor" stroke-width="1.5"/></svg></button>
+      </div>
+    </header>
+
+    <main>
+      <section class="mission-heading" aria-labelledby="page-title">
+        <div class="mission-title"><p class="eyebrow"><span class="mini-cross">+</span> SIDE-SCROLLING SPACE SHOOTER</p><h1 id="page-title">R-TYPE<span class="title-divider">/</span><span class="title-nebula">NEBULA</span><span class="edition">01</span></h1><p class="mission-caption">O espaço não está vazio. Prepare-se para atravessá-lo.</p></div>
+        <div class="record"><span class="eyebrow">SEU RECORDE</span><strong id="best-score">000000</strong><span class="record-label"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 2h6v5a3 3 0 0 1-6 0V2ZM5 4H2v2a3 3 0 0 0 3 3m6-5h3v2a3 3 0 0 1-3 3M8 10v3m-3 1h6" stroke="currentColor" stroke-width="1.2"/></svg> SUPERE SEUS LIMITES</span></div>
+      </section>
+
+      <section class="arcade" id="arcade" aria-label="Jogo R-Type Nebula">
+        <div class="hud">
+          <div class="sector-status"><span class="live-dot"></span><div><span class="hud-label">LOCALIZAÇÃO</span><strong id="sector-name">CINTURÃO DE ÓRION</strong></div><span class="sector-number" id="sector-number">01</span></div>
+          <div class="score-status"><span class="hud-label">PONTUAÇÃO</span><strong id="score">000000</strong></div>
+          <div class="shield-status"><span class="hud-label">ESCUDO</span><div class="shield-cells" id="shield" aria-label="4 de 4 escudos"><i></i><i></i><i></i><i></i></div></div>
+          <button class="icon-button game-pause" id="pause-button" title="Pausar (P)" aria-label="Pausar jogo" disabled><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M6 5v10M14 5v10" stroke="currentColor" stroke-width="2"/></svg></button>
+          <button class="icon-button" id="fullscreen-button" title="Tela cheia" aria-label="Abrir tela cheia"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" stroke="currentColor" stroke-width="1.5"/></svg></button>
+        </div>
+
+        <div class="viewport" id="viewport">
+          <canvas id="game" width="1200" height="600" aria-label="Campo de batalha espacial. Use WASD ou setas para mover, espaço para atirar e X para carregar o canhão."></canvas>
+          <div class="screen-grain" aria-hidden="true"></div>
+          <span class="coordinate coordinate-top" aria-hidden="true">RA 05h 35m / DEC −05° 23′</span>
+          <span class="coordinate coordinate-bottom" aria-hidden="true">NBL–01 // DEEP SPACE</span>
+          <div class="game-overlay" id="game-overlay">
+            <div class="overlay-content">
+              <p class="eyebrow overlay-kicker" id="overlay-kicker"><span class="signal-line"></span> TRANSMISSÃO RECEBIDA</p>
+              <h2 id="overlay-title">O ÚLTIMO SINAL<br>VEIO DE <em>ÓRION.</em></h2>
+              <p id="overlay-description">Além da fronteira, algo despertou.<br>Sua nave é a nossa última resposta.</p>
+              <div class="result-score" id="result-score" hidden><span>PONTUAÇÃO FINAL</span><strong id="final-score">000000</strong></div>
+              <button class="primary-button" id="play-button"><span id="play-label">INICIAR MISSÃO</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12h15m-6-6 6 6-6 6" stroke="currentColor" stroke-width="1.7"/></svg></button>
+              <button class="secondary-button" id="restart-button" hidden>RECOMEÇAR MISSÃO</button>
+              <span class="start-hint" id="start-hint">PRESSIONE <kbd>ENTER</kbd> PARA DECOLAR</span>
+            </div>
+          </div>
+          <div class="boss-warning" id="boss-warning" hidden><span>ALVO PRIORITÁRIO</span><strong>GUARDIÃO DE ÓRION</strong><div><i id="boss-health"></i></div></div>
+          <div class="touch-controls" id="touch-controls" aria-label="Controles por toque">
+            <div class="touch-dpad"><button data-action="up" aria-label="Mover para cima">↑</button><button data-action="left" aria-label="Mover para esquerda">←</button><button data-action="right" aria-label="Mover para direita">→</button><button data-action="down" aria-label="Mover para baixo">↓</button></div>
+            <div class="touch-weapons"><button data-action="charge" class="touch-charge" aria-label="Segure para carregar o canhão">RAIO</button><button data-action="fire" class="touch-fire" aria-label="Atirar">FOGO</button></div>
+          </div>
+        </div>
+
+        <div class="flight-bar">
+          <div class="weapon-status"><span class="weapon-icon" aria-hidden="true">↗</span><span id="weapon-name">BLASTER I</span><span class="charge-track" title="Carga do canhão"><i id="charge-fill"></i></span><span class="charge-label" id="charge-label">CANHÃO PRONTO</span></div>
+          <div class="mission-progress"><span>01</span><div class="progress-track"><i id="mission-progress"></i><b></b><b></b></div><span>03</span></div>
+          <span class="flight-status" id="flight-status"><i></i> AGUARDANDO PILOTO</span>
+        </div>
+      </section>
+
+      <section class="control-guide" aria-label="Guia rápido de controles">
+        <div class="guide-item"><div class="key-cluster"><kbd>W</kbd><span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></div><div><strong>PILOTE SUA NAVE</strong><p>WASD ou teclas de direção</p></div></div>
+        <div class="guide-item"><kbd class="wide-key">ESPAÇO</kbd><div><strong>ABRA CAMINHO</strong><p>Segure para disparar</p></div></div>
+        <div class="guide-item"><kbd class="single-key">X</kbd><div><strong>LIBERE O CANHÃO</strong><p>Segure, carregue e solte</p></div></div>
+        <div class="guide-item pause-guide"><kbd class="single-key">P</kbd><div><strong>RESPIRE UM POUCO</strong><p>Pause a qualquer momento</p></div></div>
+      </section>
+      <p class="mobile-tip">Use os controles na tela. Para uma visão maior, gire o celular.</p>
+    </main>
+
+    <footer class="site-footer"><span><i></i> FEITO PARA QUEM AINDA OLHA PARA AS ESTRELAS.</span><button id="manual-button">MANUAL DE VOO <span aria-hidden="true">↗</span></button></footer>
+  </div>
+
+  <dialog id="manual" aria-labelledby="manual-title">
+    <div class="manual-header"><span class="eyebrow">NEBULA / MANUAL DO PILOTO</span><button class="icon-button" id="close-manual" aria-label="Fechar manual">×</button></div>
+    <h2 id="manual-title">Seu próximo voo<br>começa aqui.</h2>
+    <p>Atravesse os três setores de Órion e destrua o guardião. Seu escudo suporta quatro impactos; depois de ser atingido, você fica invulnerável por um instante.</p>
+    <div class="manual-row"><kbd>WASD</kbd><span>Mova a nave. As setas também funcionam.</span></div>
+    <div class="manual-row"><kbd>ESPAÇO</kbd><span>Segure para atirar. Você também pode usar Z.</span></div>
+    <div class="manual-row"><kbd>X</kbd><span>Segure para carregar e solte para disparar um raio. Uma carga completa atravessa vários inimigos.</span></div>
+    <div class="manual-row"><kbd>P / ESC</kbd><span>Pause e retome o voo. Enter também inicia ou retoma.</span></div>
+    <div class="manual-pickups"><span><b class="pickup-weapon">↑</b> Melhoria de arma</span><span><b class="pickup-repair">+</b> Reparo de escudo</span></div>
+    <p class="manual-note">Colete os módulos deixados pelos inimigos. Seu recorde fica salvo neste navegador. No celular, use os botões na tela.</p>
+    <button class="primary-button" id="manual-done">ENTENDIDO, COMANDO <span aria-hidden="true">→</span></button>
+  </dialog>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
