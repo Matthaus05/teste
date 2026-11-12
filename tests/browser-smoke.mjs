@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { STAGES, POWERS } from '../dist/campaign.mjs';
 
 const artifacts = resolve('artifacts');
 await mkdir(artifacts, { recursive: true });
@@ -68,11 +69,28 @@ try {
     throw new Error('Game did not initialize after navigation');
   };
   await call('Page.enable');await call('Runtime.enable');
+  if (process.argv.includes('--layout-only')) {
+    await call('Emulation.setDeviceMetricsOverride',{width:320,height:568,deviceScaleFactor:1,mobile:true});
+    await call('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:5});
+    await navigate();
+    await evaluate("document.getElementById('play-button').click();window.nebula._spawnBoss();window.nebula.boss.x=1020;window.nebula.boss.hp=1;window.nebula.bullets=[{x:1020,y:300,vx:0,vy:0,radius:20,damage:2,life:1}];window.nebula.update(.01)");
+    await call('Emulation.setDeviceMetricsOverride',{width:500,height:320,deviceScaleFactor:1,mobile:true});
+    await call('Emulation.setPageScaleFactor',{pageScaleFactor:1});
+    await evaluate("document.getElementById('arcade').requestFullscreen=undefined;document.getElementById('fullscreen-button').click()");
+    await sleep(100);
+    for (const scroll of [false,true]) {
+      if(scroll)await evaluate("document.getElementById('play-button').scrollIntoView({block:'nearest'})");
+      console.log(JSON.stringify(await evaluate(`(()=>{const ids=['arcade','viewport','game-overlay','play-button','fullscreen-button'];const rects={};for(const id of ids){const e=document.getElementById(id),r=e.getBoundingClientRect(),s=getComputedStyle(e);rects[id]={x:r.x,y:r.y,w:r.width,h:r.height,scrollWidth:e.scrollWidth,scrollHeight:e.scrollHeight,minHeight:s.minHeight,width:s.width,overflow:s.overflow,flex:s.flex};}return{scrolled:${scroll},innerWidth,innerHeight,scrollX,scrollY,visualScale:visualViewport.scale,visualX:visualViewport.offsetLeft,visualY:visualViewport.offsetTop,rects};})()`)));
+    }
+    await screenshot('layout-diagnostic.png');
+    await call('Browser.close').catch(()=>{});
+  } else {
   await call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
   await navigate();
   await sleep(300);
   check('Initial menu and canvas loaded',await evaluate("window.nebula?.state==='menu' && !!document.querySelector('canvas').getContext('2d')"));
   check('Portuguese text encoding',await evaluate("document.title.includes('—') && document.getElementById('overlay-title').textContent.includes('ÓRION')"));
+  check('Six-stage campaign is shown in the HUD',await evaluate("document.getElementById('stage-counter').textContent.includes('01 / 06')"));
   check('Desktop has no horizontal overflow',await evaluate('document.documentElement.scrollWidth<=innerWidth'));
   await screenshot('desktop.png');
   await evaluate("document.getElementById('help-button').focus();document.getElementById('help-button').click();document.getElementById('manual-done').click()");
@@ -109,6 +127,16 @@ try {
   await evaluate("document.getElementById('manual-done').click()");await sleep(80);
   check('Closing manual resumes active game',await evaluate("window.nebula.state==='playing' && !document.getElementById('manual').open"));
   check('Resuming returns keyboard focus to battlefield',await evaluate("document.activeElement.id==='game'"));
+  for (const type of ['laser', 'spread', 'homing', 'rapid', 'shield']) {
+    await evaluate(`(()=>{const g=window.nebula,p=g.player;g.pickups.push({type:${JSON.stringify(type)},x:p.x,y:p.y,baseY:p.y,radius:17,age:0});g.update(.001)})()`);
+    if (['laser','spread','homing'].includes(type)) {
+      check(`HUD displays ${type} and duration`,await evaluate(`document.getElementById('weapon-name').textContent.includes(${JSON.stringify(POWERS[type].name)}) && !document.getElementById('power-timer').hidden`));
+    } else check(`HUD displays active ${type}`,await evaluate("!document.getElementById('active-effects').hidden && document.getElementById('active-effects').textContent.length>0"));
+  }
+  const bombsBefore=await evaluate('window.nebula.player.bombs');
+  await evaluate('window.nebula.enemyBullets=[{x:600,y:150,vx:0,vy:0,radius:5,damage:1,life:8}]');
+  await key('KeyC','c');await key('KeyC','c','keyUp');
+  check('C uses a bomb and updates the HUD',await evaluate(`window.nebula.player.bombs===${bombsBefore-1} && window.nebula.enemyBullets.length===0 && document.getElementById('bomb-count').textContent===String(window.nebula.player.bombs)`));
   await evaluate(`window.__stops=[];window.__originalStop=OscillatorNode.prototype.stop;OscillatorNode.prototype.stop=function(when){window.__stops.push(when ?? 0);return window.__originalStop.call(this,when);};window.nebula._sound('victory')`);
   const pressed=await evaluate("document.getElementById('sound-button').getAttribute('aria-pressed')");
   await evaluate("document.getElementById('sound-button').click()");
@@ -117,11 +145,21 @@ try {
   await evaluate('OscillatorNode.prototype.stop=window.__originalStop');
   await evaluate("window.dispatchEvent(new Event('blur'))");
   check('Losing focus pauses and clears controls',await evaluate("window.nebula.state==='paused' && Object.values(window.nebula.input).every(value=>!value)"));
-  await evaluate("document.getElementById('play-button').click();window.nebula.elapsed=65.99;window.nebula.update(.05);for(let i=0;i<70;i++)window.nebula.update(.05)");
-  await sleep(100);
-  check('Boss enters the visible battlefield and updates HUD',await evaluate("!!window.nebula.boss && window.nebula.boss.x <= 1114 && !document.getElementById('boss-warning').hidden"));
-  await screenshot('boss.png');
-  await evaluate('window.nebula.boss.x=1020;window.nebula.boss.hp=1;window.nebula.bullets.push({x:window.nebula.boss.x,y:window.nebula.boss.y,vx:0,vy:0,radius:20,damage:2,life:1});window.nebula.update(.01)');
+  await evaluate("document.getElementById('play-button').click()");
+  for (let index=0;index<STAGES.length;index++) {
+    await evaluate('window.nebula.player.invulnerable=999;window.nebula.stageElapsed=window.nebula.stage.waveDuration-.01;window.nebula.update(.05);for(let i=0;i<70;i++)window.nebula.update(.05)');
+    await sleep(100);
+    check(`Stage ${index+1} boss enters and displays its name`,await evaluate(`!!window.nebula.boss && window.nebula.boss.type===${JSON.stringify(STAGES[index].boss.type)} && window.nebula.boss.x<=1114 && !document.getElementById('boss-warning').hidden && document.getElementById('boss-name').textContent===${JSON.stringify(STAGES[index].boss.name)}`));
+    await screenshot(`boss-${index+1}.png`);
+    await evaluate('window.nebula.boss.x=1020;window.nebula.boss.hp=1;window.nebula.bullets.push({x:window.nebula.boss.x,y:window.nebula.boss.y,vx:0,vy:0,radius:20,damage:2,life:1});window.nebula.update(.01)');
+    if(index<STAGES.length-1) {
+      check(`Stage ${index+1} ends with next-stage briefing`,await evaluate(`window.nebula.state==='intermission' && !document.getElementById('game-overlay').hidden && document.getElementById('play-label').textContent==='PRÓXIMA FASE' && document.getElementById('game-overlay').textContent.includes(${JSON.stringify(STAGES[index+1].name)})`));
+      if(index===0)await screenshot('intermission.png');
+      if(index%2){await key('Enter','Enter');await key('Enter','Enter','keyUp');}
+      else await evaluate("document.getElementById('play-button').click()");
+      check(`Stage ${index+2} starts after confirmation`,await evaluate(`window.nebula.state==='playing' && window.nebula.stageIndex===${index+1} && document.getElementById('stage-counter').textContent.includes(${JSON.stringify(String(index+2).padStart(2,'0')+' / 06')})`));
+    }
+  }
   check('Victory displays final result and full progress',await evaluate("window.nebula.state==='victory' && !document.getElementById('result-score').hidden && document.getElementById('mission-progress').style.width==='100%'"));
   await evaluate("document.getElementById('play-button').click()");
   await evaluate('window.nebula.player.hp=1;window.nebula.player.invulnerable=0;window.nebula._damagePlayer()');await sleep(80);
@@ -150,6 +188,9 @@ try {
     check(`Mobile touch ${action}`,passed,{before,after:during,rect:p});
   }
   check('Mobile touch fire',(await touch('fire',300)).during.bullets>0);
+  const touchBombsBefore=await evaluate('window.nebula.player.bombs');
+  await touch('bomb',100);
+  check('Mobile bomb button consumes one bomb',await evaluate(`window.nebula.player.bombs===${touchBombsBefore-1} && document.getElementById('touch-bomb-count').textContent.includes(String(window.nebula.player.bombs))`));
   check('Mobile touch charge',(await touch('charge',1600)).during.charge>=.99);
   check('Mobile release charge emits beam',await evaluate('window.nebula.bullets.some(b=>b.charged)'));
   await evaluate('window.nebula.bullets=[];window.nebula.releaseInputs()');
@@ -161,22 +202,38 @@ try {
   await touch('fire',100);
   check('Releasing touch fire preserves held keyboard fire',await evaluate('window.nebula.input.fire'));
   await key('Space',' ','keyUp');
+  await touch('bomb',80);
+  check('Using the last mobile bomb disables its button without holding the input',await evaluate("window.nebula.player.bombs===0 && document.getElementById('touch-bomb').disabled && !window.nebula.input.bomb"));
+  await evaluate("(()=>{const g=window.nebula,p=g.player;g.pickups.push({type:'bomb',x:p.x,y:p.y,baseY:p.y,radius:17,age:0});g.update(.001)})()");
+  await touch('bomb',80);
+  check('Collecting ammunition re-enables the mobile bomb',await evaluate('window.nebula.player.bombs===0 && !window.nebula.input.bomb'));
   await screenshot('mobile-gameplay.png');
   await call('Emulation.setDeviceMetricsOverride',{width:320,height:568,deviceScaleFactor:1,mobile:true});
+  await call('Emulation.setPageScaleFactor',{pageScaleFactor:1});
+  await evaluate("(()=>{const g=window.nebula,p=g.player;for(const type of ['homing','rapid','shield'])g.pickups.push({type,x:p.x,y:p.y,baseY:p.y,radius:17,age:0});g.update(.001)})()");
   check('Small phone has no horizontal overflow',await evaluate('document.documentElement.scrollWidth<=innerWidth'),await evaluate('({scroll:document.documentElement.scrollWidth,width:innerWidth})'));
+  await evaluate("window.nebula._spawnBoss();window.nebula.boss.x=1020;window.nebula.boss.hp=1;window.nebula.bullets=[{x:1020,y:window.nebula.boss.y,vx:0,vy:0,radius:20,damage:2,life:1}];window.nebula.update(.01);document.getElementById('play-button').scrollIntoView({block:'nearest'})");
+  check('Small phone intermission exposes the next-stage button',await evaluate("window.nebula.state==='intermission' && (()=>{const r=document.getElementById('play-button').getBoundingClientRect(),v=document.getElementById('viewport').getBoundingClientRect();return r.top>=v.top&&r.bottom<=v.bottom})()"));
+  await screenshot('mobile-intermission.png');
+  await evaluate("document.getElementById('play-button').click();window.nebula.player.invulnerable=999");
   await call('Emulation.setDeviceMetricsOverride',{width:500,height:320,deviceScaleFactor:1,mobile:true});
+  await call('Emulation.setPageScaleFactor',{pageScaleFactor:1});
   await evaluate("document.getElementById('arcade').requestFullscreen=undefined;document.getElementById('fullscreen-button').click();window.nebula.pause()");
   await sleep(100);
   check('Short landscape fullscreen fits pause controls',await evaluate("(()=>{const ids=['play-button','restart-button'];return ids.every(id=>{const r=document.getElementById(id).getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})})()"));
   check('Short landscape fullscreen keeps HUD and exit button visible',await evaluate("(()=>{const ids=['fullscreen-button','pause-button'];return ids.every(id=>{const r=document.getElementById(id).getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth})})()"));
   check('Short landscape fullscreen keeps weapon bar visible',await evaluate("(()=>{const r=document.querySelector('.flight-bar').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight})()"));
   await screenshot('landscape.png');
+  await evaluate("window.nebula.start();window.nebula._spawnBoss();window.nebula.boss.x=1020;window.nebula.boss.hp=1;window.nebula.bullets=[{x:1020,y:window.nebula.boss.y,vx:0,vy:0,radius:20,damage:2,life:1}];window.nebula.update(.01);document.getElementById('play-button').scrollIntoView({block:'nearest'})");
+  check('Short landscape intermission allows advancing without hiding fullscreen exit',await evaluate("window.nebula.state==='intermission' && (()=>{const b=document.getElementById('play-button').getBoundingClientRect(),v=document.getElementById('viewport').getBoundingClientRect(),e=document.getElementById('fullscreen-button').getBoundingClientRect();return b.top>=v.top-1&&b.bottom<=v.bottom+1&&e.top>=0&&e.bottom<=innerHeight})()"));
+  await screenshot('landscape-intermission.png');
   await evaluate("document.getElementById('fullscreen-button').click()");
   check('Fullscreen fallback can be exited',await evaluate("!document.getElementById('arcade').classList.contains('expanded') && !document.fullscreenElement"));
   check('No browser errors',errors.length===0,errors);
   await writeFile(resolve(artifacts,'browser-results.json'),JSON.stringify({results,errors},null,2));
   if(results.some(r=>!r.passed))process.exitCode=1;
   await call('Browser.close').catch(()=>{});
+  }
 } finally {
   socket?.close();browser.kill();
 }

@@ -1,9 +1,9 @@
 import { Game } from './game.mjs';
 import { Renderer } from './render.mjs';
+import { STAGES, POWERS } from './campaign.mjs';
 
 const $ = (id) => document.getElementById(id);
 const formatScore = (value) => Math.max(0, Math.floor(value)).toString().padStart(6, '0');
-const sectorNames = ['CINTURÃO DE ÓRION', 'RUÍNAS ORBITAIS', 'O ÚLTIMO HORIZONTE'];
 const arcade = $('arcade');
 const overlay = $('game-overlay');
 const manual = $('manual');
@@ -71,6 +71,11 @@ class AudioSystem {
       [520, 780, 1040].forEach((f, i) => this.tone(f, f, .13, 'sine', .045, i * .07));
     } else if (name === 'boss') {
       [0, .24, .48].forEach((delay) => this.tone(170, 90, .2, 'sawtooth', .04, delay));
+    } else if (name === 'bomb') {
+      this.tone(80, 24, .65, 'sawtooth', .055);
+      this.tone(950, 90, .5, 'triangle', .05);
+    } else if (name === 'stage') {
+      [440, 554, 659].forEach((f, i) => this.tone(f, f, .22, 'triangle', .045, i * .11));
     } else if (name === 'victory') {
       [392, 494, 587, 784].forEach((f, i) => this.tone(f, f, .3, 'triangle', .06, i * .13));
     } else if (name === 'defeat') {
@@ -82,24 +87,54 @@ const audio = new AudioSystem();
 
 function renderStatus(snapshot) {
   const { state, score, best, hp, maxHp, weapon, charge, sector, progress, bossHp, bossMaxHp } = snapshot;
+  const stageIndex = snapshot.stageIndex ?? Math.max(0, (sector || 1) - 1);
+  const stage = STAGES[stageIndex] || STAGES[0];
+  const stageCount = snapshot.stageCount || STAGES.length;
+  const stageNumber = String(stageIndex + 1).padStart(2, '0');
+  const power = POWERS[snapshot.power] || POWERS.blaster;
+  const bombs = snapshot.bombs ?? 2;
+  arcade.style.setProperty('--stage-color', stage.color);
   $('score').textContent = formatScore(score);
   $('best-score').textContent = formatScore(best);
-  $('sector-name').textContent = bossMaxHp && bossHp > 0 ? 'CONTATO HOSTIL' : sectorNames[sector - 1] || sectorNames[0];
-  $('sector-number').textContent = String(sector).padStart(2, '0');
+  $('sector-name').textContent = snapshot.stageName || stage.name;
+  $('stage-counter').textContent = `FASE ${stageNumber} / ${String(stageCount).padStart(2, '0')}`;
+  $('sector-number').textContent = stageNumber;
   $('shield').setAttribute('aria-label', `${hp} de ${maxHp} escudos`);
   [...$('shield').children].forEach((cell, index) => cell.classList.toggle('empty', index >= hp));
-  $('weapon-name').textContent = `BLASTER ${['I', 'II', 'III'][Math.min(2, weapon - 1)] || 'I'}`;
+  $('weapon-name').textContent = snapshot.power && snapshot.power !== 'blaster' ? power.name : `BLASTER ${['I', 'II', 'III'][Math.min(2, weapon - 1)] || 'I'}`;
+  $('weapon-name').style.color = power.color;
+  $('power-timer').hidden = !(snapshot.powerTime > 0);
+  $('power-timer').textContent = `${Math.ceil(snapshot.powerTime || 0)}s`;
+  $('bomb-count').textContent = String(bombs);
+  $('touch-bomb-count').textContent = `×${bombs}`;
+  $('bomb-button').disabled = state !== 'playing' || bombs <= 0;
+  $('touch-bomb').disabled = state !== 'playing' || bombs <= 0;
+  $('bomb-button').setAttribute('aria-label', `Usar bomba nova. ${bombs} disponíveis. Atalho C.`);
+  $('touch-bomb').setAttribute('aria-label', `Usar bomba nova. ${bombs} disponíveis.`);
+  const effects = [];
+  if (snapshot.rapidTime > 0) effects.push({ type: 'rapid', label: `${POWERS.rapid.symbol} ${Math.ceil(snapshot.rapidTime)}s`, title: 'Tiro rápido' });
+  if (snapshot.shieldTime > 0 && snapshot.shieldHits > 0) effects.push({ type: 'shield', label: `${POWERS.shield.symbol} ${snapshot.shieldHits} · ${Math.ceil(snapshot.shieldTime)}s`, title: 'Barreira: impactos restantes e duração' });
+  $('active-effects').hidden = effects.length === 0;
+  $('active-effects').replaceChildren(...effects.map((effect) => {
+    const badge = document.createElement('span');
+    badge.style.color = POWERS[effect.type].color;
+    badge.textContent = effect.label;
+    badge.title = effect.title;
+    badge.setAttribute('aria-label', `${effect.title}: ${effect.label}`);
+    return badge;
+  }));
   $('charge-fill').style.width = `${Math.max(0, Math.min(1, charge)) * 100}%`;
   $('charge-label').textContent = charge >= 1 ? 'CARGA MÁXIMA — SOLTE X' : charge > 0 ? 'CARREGANDO CANHÃO' : 'CANHÃO PRONTO';
   $('mission-progress').style.width = `${progress * 100}%`;
   $('boss-warning').hidden = !(bossMaxHp && bossHp > 0 && state === 'playing');
+  $('boss-name').textContent = snapshot.bossName || stage.boss.name;
   $('boss-health').style.width = `${bossMaxHp ? Math.max(0, bossHp / bossMaxHp * 100) : 0}%`;
-  $('flight-status').innerHTML = `<i></i> ${state === 'playing' ? 'MISSÃO EM CURSO' : state === 'paused' ? 'VOO EM ESPERA' : state === 'victory' ? 'MISSÃO CONCLUÍDA' : state === 'gameover' ? 'SINAL PERDIDO' : 'AGUARDANDO PILOTO'}`;
+  $('flight-status').innerHTML = `<i></i> ${state === 'playing' ? 'MISSÃO EM CURSO' : state === 'paused' ? 'VOO EM ESPERA' : state === 'intermission' ? 'ROTA LIBERADA' : state === 'victory' ? 'CAMPANHA CONCLUÍDA' : state === 'gameover' ? 'SINAL PERDIDO' : 'AGUARDANDO PILOTO'}`;
   $('pause-button').disabled = !['playing', 'paused'].includes(state);
   $('pause-button').setAttribute('aria-label', state === 'paused' ? 'Retomar jogo' : 'Pausar jogo');
   $('pause-button').title = state === 'paused' ? 'Retomar (P)' : 'Pausar (P)';
   if (previousState === state) return;
-  const enteringMission = state === 'playing' && previousState === 'menu';
+  const enteringMission = state === 'playing' && ['menu', 'intermission'].includes(previousState);
   previousState = state;
   if (state === 'paused') audio.silence();
   arcade.dataset.state = state;
@@ -110,13 +145,17 @@ function renderStatus(snapshot) {
   });
   $('restart-button').hidden = state !== 'paused';
   $('result-score').hidden = !['gameover', 'victory'].includes(state);
-  $('start-hint').hidden = state !== 'menu';
+  $('stage-briefing-panel').hidden = state !== 'intermission';
+  $('campaign-features').hidden = state !== 'menu';
+  $('start-hint').hidden = !['menu', 'intermission'].includes(state);
+  $('start-hint').innerHTML = state === 'intermission' ? 'PRESSIONE <kbd>ENTER</kbd> PARA CONTINUAR' : 'PRESSIONE <kbd>ENTER</kbd> PARA DECOLAR';
   $('final-score').textContent = formatScore(score);
   const content = {
-    menu: ['TRANSMISSÃO RECEBIDA', 'O ÚLTIMO SINAL<br>VEIO DE <em>ÓRION.</em>', 'Além da fronteira, algo despertou.<br>Sua nave é a nossa última resposta.', 'INICIAR MISSÃO'],
+    menu: ['TRANSMISSÃO RECEBIDA', 'O ÚLTIMO SINAL<br>VEIO DE <em>ÓRION.</em>', 'Seis rotas. Seis ameaças diferentes.<br>Arme sua nave e atravesse a fronteira.', 'INICIAR CAMPANHA'],
+    intermission: [`FASE ${stageNumber} / ${String(stageCount).padStart(2, '0')} CONCLUÍDA`, 'ROTA LIBERADA.<br><em>O VOO CONTINUA.</em>', `${stage.boss.name} foi derrotado.<br>Ao partir: +1 ponto de escudo e +1 bomba.`, 'PRÓXIMA FASE'],
     paused: ['TRANSMISSÃO EM ESPERA', 'UM MOMENTO<br>ENTRE <em>ESTRELAS.</em>', 'Seu voo está pausado.<br>Órion estará aqui quando você voltar.', 'RETOMAR MISSÃO'],
     gameover: ['CONEXÃO INTERROMPIDA', 'PERDEMOS<br>SEU <em>SINAL.</em>', 'O espaço ainda guarda seus segredos.<br>Uma nova decolagem. Uma nova chance.', 'TENTAR NOVAMENTE'],
-    victory: ['FRONTEIRA PROTEGIDA', 'ÓRION VOLTOU<br>A <em>BRILHAR.</em>', 'O guardião caiu. A rota está livre.<br>O universo vai lembrar deste voo.', 'VOAR NOVAMENTE'],
+    victory: ['SEIS ROTAS. UMA VITÓRIA.', 'O VAZIO PERDEU<br>SEU <em>IMPÉRIO.</em>', 'Os seis chefes caíram. A fronteira está livre.<br>O universo vai lembrar deste voo.', 'JOGAR NOVAMENTE'],
   }[state];
   if (content) {
     $('overlay-kicker').innerHTML = `<span class="signal-line"></span> ${content[0]}`;
@@ -124,7 +163,38 @@ function renderStatus(snapshot) {
     $('overlay-description').innerHTML = content[2];
     $('play-label').textContent = content[3];
   }
+  if (state === 'intermission') {
+    const nextStage = STAGES[stageIndex + 1];
+    $('next-stage-name').textContent = snapshot.nextStageName || nextStage?.name || 'FRONTEIRA PROTEGIDA';
+    $('stage-briefing').textContent = nextStage?.briefing || '';
+  }
 }
+
+$('manual-powers').replaceChildren(...Object.entries(POWERS).filter(([key]) => key !== 'blaster').map(([, power]) => {
+  const row = document.createElement('div');
+  row.className = 'manual-power';
+  const icon = document.createElement('b');
+  icon.textContent = power.symbol;
+  icon.style.color = power.color;
+  const detail = document.createElement('div');
+  const title = document.createElement('strong');
+  title.textContent = `${power.name}${power.duration ? ` · ${power.duration}s` : ''}`;
+  const description = document.createElement('p');
+  description.textContent = power.description;
+  detail.append(title, description);
+  row.append(icon, detail);
+  return row;
+}));
+$('campaign-list').replaceChildren(...STAGES.map((stage, index) => {
+  const item = document.createElement('li');
+  const title = document.createElement('strong');
+  title.textContent = `${String(index + 1).padStart(2, '0')} / ${stage.name}`;
+  title.style.color = stage.color;
+  const boss = document.createElement('span');
+  boss.textContent = stage.boss.name;
+  item.append(title, boss);
+  return item;
+}));
 
 game = new Game({ canvas: $('game'), renderer: new Renderer($('game')), onChange: renderStatus, onSound: (name) => audio.play(name) });
 game.setMuted(muted);
@@ -148,6 +218,7 @@ $('sound-button').addEventListener('click', (event) => {
 $('play-button').addEventListener('click', () => { audio.unlock(); game.start(); $('game').focus({ preventScroll: true }); });
 $('restart-button').addEventListener('click', () => { audio.unlock(); game.restart(); $('game').focus({ preventScroll: true }); });
 $('pause-button').addEventListener('click', () => { audio.unlock(); game.pause(); (game.state === 'paused' ? $('play-button') : $('game')).focus({ preventScroll: true }); });
+$('bomb-button').addEventListener('click', () => { audio.unlock(); game.useBomb(); $('game').focus({ preventScroll: true }); });
 document.addEventListener('keydown', () => audio.unlock(), { capture: true });
 document.addEventListener('pointerdown', () => audio.unlock(), { capture: true });
 

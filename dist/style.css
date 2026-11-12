@@ -27,3 +27,37 @@ dialog{width:min(510px,calc(100% - 30px));background:#171c22;border:1px solid #4
   :is(.arcade:fullscreen,.arcade.expanded) .result-score{margin-bottom:8px}
   :is(.arcade:fullscreen,.arcade.expanded) .result-score strong{font-size:22px;line-height:1.25}
 }
+
+/* Campaign HUD and arsenal. */
+.arcade{--stage-color:var(--cyan)}
+.sector-status{min-width:0}.sector-status>div{min-width:0}.sector-status strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sector-status .live-dot{background:var(--stage-color);flex-shrink:0}.sector-number{flex-shrink:0}
+.campaign-features{display:flex;gap:15px;font:7px var(--mono);letter-spacing:1px;color:#8da5b1;margin:-8px 0 23px}
+.campaign-features span+span{border-left:1px solid #40505c;padding-left:15px}
+.power-timer{font:8px var(--mono);color:#bacbd5;border:1px solid #405463;padding:3px 5px;letter-spacing:0}
+.weapon-status{min-width:0}.weapon-status #weapon-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}.weapon-icon,.charge-track{flex-shrink:0}
+.bomb-button{height:26px;display:inline-flex;align-items:center;justify-content:center;gap:7px;border:1px solid #565370;background:#211e32;color:#c7bfff;padding:0 8px;font:7px var(--mono);letter-spacing:.5px;flex-shrink:0}
+.bomb-button kbd{height:16px;min-width:16px;font-size:7px;background:#2a263f;border-color:#6d6489;color:#d5d0f4}.bomb-button strong{font-size:11px;font-weight:500}.bomb-button:hover:enabled{border-color:#b9a8fa;color:#e1d8ff}
+.active-effects{position:absolute;top:52px;right:19px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;z-index:4;pointer-events:none}
+.active-effects span{font:8px var(--mono);letter-spacing:.5px;padding:5px 7px;background:#07121bd9;border:1px solid currentColor;box-shadow:0 2px 9px #0003}
+.mission-progress{flex:0 1 145px}.flight-status{flex:0 1 180px}.control-guide{grid-template-columns:1.15fr 1fr 1fr 1fr .9fr}
+.touch-weapons{display:grid;grid-template-columns:48px 65px;grid-template-rows:48px 48px;gap:7px 9px;padding-bottom:3px;align-items:center}
+.touch-charge{grid-column:1;grid-row:1}.touch-weapons .touch-fire{grid-column:2;grid-row:1 / span 2}
+.touch-weapons .touch-bomb{grid-column:1;grid-row:2;width:45px;height:45px;display:flex;flex-direction:column;gap:3px;border-color:#ada0ea80;color:#d2c7ff;background:#342c5088;font-size:6px}
+.touch-bomb small{font:9px var(--mono)}.touch-weapons .touch-bomb:active{background:#7864ae88}
+.arcade[data-state="intermission"] .game-overlay{justify-content:center;align-items:flex-start;overflow-y:auto;background:#050d17db;text-align:center;backdrop-filter:blur(3px)}
+.arcade[data-state="intermission"] .overlay-content{margin-block:auto;width:460px}.arcade[data-state="intermission"] .overlay-kicker{justify-content:center}
+.arcade[data-state="intermission"] .overlay-content h2{font-size:46px;margin:13px 0}.arcade[data-state="intermission"] .overlay-content>p:not(.eyebrow){font-size:12px;margin-bottom:15px}
+.stage-briefing-panel{text-align:left;border:1px solid #425565;border-left:2px solid var(--stage-color);background:#0b1822c9;padding:12px 15px;margin:0 0 20px}
+.stage-briefing-panel>span{display:block;font:7px var(--mono);letter-spacing:1px;color:#839aa9}.stage-briefing-panel>strong{display:block;font:500 12px var(--mono);color:var(--stage-color);margin:6px 0 7px;letter-spacing:.7px}
+.stage-briefing-panel>p{font-size:11px;line-height:1.5;margin:0;color:#9cafbc}
+.manual-section-title{font:9px var(--mono);letter-spacing:1.5px;color:var(--orange);margin:24px 0 6px}
+.manual-power{display:flex;gap:13px;padding:11px 0;border-bottom:1px solid #2c353f;align-items:flex-start}.manual-power>b{display:flex;align-items:center;justify-content:center;flex:0 0 25px;height:25px;border:1px solid currentColor;font:12px var(--mono);background:#0d1720}
+.manual-power strong{font:8px var(--mono);letter-spacing:.8px;color:#d5dde1}.manual-power p{font-size:11px;line-height:1.5;color:#8fa1ae;margin:4px 0 0}
+.campaign-manual{margin-top:18px;border:1px solid #35424d;padding:12px}.campaign-manual summary{cursor:pointer;color:#c5ced4;font:8px var(--mono);letter-spacing:.8px}.campaign-manual ol{margin:10px 0 0;padding:0;list-style:none}.campaign-manual li{padding:10px 0;border-top:1px solid #2b3740}.campaign-manual li strong{display:block;font:8px var(--mono);letter-spacing:.5px}.campaign-manual li span{display:block;font-size:10px;color:#8d9eaa;margin-top:4px}
+@media(max-width:1100px){.flight-status{display:none}.mission-progress{flex-basis:130px}.weapon-status{flex:1}.control-guide{gap:10px}.campaign-features{font-size:6px;gap:11px}.campaign-features span+span{padding-left:11px}}
+@media(max-width:760px){.control-guide{grid-template-columns:1fr 1fr;gap:12px 24px}.mission-progress{flex-basis:100px}.bomb-button{height:23px;font-size:6px;gap:5px;padding:0 6px}.power-timer{font-size:6px;padding:2px 3px}.active-effects{top:44px;right:12px}.active-effects span{font-size:6px;padding:4px 5px}.campaign-features{margin:0 0 17px;gap:8px}.campaign-features span+span{padding-left:8px}.arcade[data-state="intermission"] .overlay-content h2{font-size:36px}.arcade[data-state="intermission"] .overlay-content>p:not(.eyebrow){font-size:11px}.stage-briefing-panel{padding:10px 12px}.stage-briefing-panel>strong{font-size:10px}.stage-briefing-panel>p{font-size:10px}}
+@media(max-width:520px){.control-guide{grid-template-columns:1fr;gap:0}.weapon-status{gap:6px;flex:1}.weapon-status #weapon-name{max-width:100px}.bomb-button>span{display:none}.bomb-button{gap:5px}.mission-progress{flex-basis:75px}.charge-track{width:25px;margin-left:0}.flight-bar{gap:9px}.campaign-features{justify-content:center;font-size:5px;margin-bottom:13px}.arcade[data-state="menu"] .overlay-content h2{font-size:38px;margin:14px 0}.arcade[data-state="menu"] .overlay-content>p:not(.eyebrow){margin-bottom:14px}.arcade[data-state="intermission"] .viewport{min-height:410px}.arcade[data-state="intermission"] .overlay-content h2{font-size:34px;margin:11px 0}.stage-briefing-panel{margin-bottom:15px}.active-effects{right:10px}.manual-power{gap:10px}.touch-controls{left:13px;right:13px}}
+@media(max-width:360px){.arcade[data-state="menu"] .viewport{min-height:310px}.weapon-status #weapon-name{max-width:72px}.mission-progress{flex-basis:60px}.flight-bar{gap:7px}.touch-weapons{grid-template-columns:44px 58px;grid-template-rows:44px 44px;gap:7px}.touch-charge{width:44px;height:44px}.touch-weapons .touch-fire{width:58px;height:58px}.touch-weapons .touch-bomb{width:42px;height:42px}}
+@media(pointer:coarse) and (min-width:521px){.touch-weapons{grid-template-columns:42px 52px;grid-template-rows:42px 42px;gap:6px 8px}.touch-weapons .touch-bomb{width:40px;height:40px}}
+@media(max-height:520px){:is(.arcade:fullscreen,.arcade.expanded) .viewport{min-height:0}:is(.arcade:fullscreen,.arcade.expanded) .campaign-features{margin:0 0 11px}:is(.arcade:fullscreen,.arcade.expanded) .overlay-content h2{font-size:clamp(26px,8vh,34px);margin:8px 0}:is(.arcade:fullscreen,.arcade.expanded) .stage-briefing-panel{margin-bottom:10px;padding:8px 11px}:is(.arcade:fullscreen,.arcade.expanded) .stage-briefing-panel>p{font-size:10px}:is(.arcade:fullscreen,.arcade.expanded) .stage-briefing-panel>strong{font-size:9px;margin:4px 0}:is(.arcade:fullscreen,.arcade.expanded) .overlay-content>p:not(.eyebrow){font-size:11px;margin-bottom:10px}}

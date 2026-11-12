@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Game } from '../dist/game.mjs';
+import { STAGES, POWERS, POWER_DROP_CYCLE } from '../dist/campaign.mjs';
 
 function advance(game, seconds, step = 0.05) {
   let remaining = seconds;
@@ -27,6 +28,11 @@ function enemy(x, { hp = 3, y = 300, id = x } = {}) {
 
 function hostileShot(x, y, overrides = {}) {
   return { x, y, vx: 0, vy: 0, radius: 5, damage: 1, life: 6, ...overrides };
+}
+
+function collect(game, type) {
+  game.pickups.push({ type, x: game.player.x, y: game.player.y, baseY: game.player.y, radius: 17, age: 0 });
+  game.update(0.001);
 }
 
 function replaceGlobal(t, key, descriptor) {
@@ -218,7 +224,7 @@ test('pausing freezes the battle, releases held inputs and resumes without skipp
   assert(game.enemyBullets[0].x < before.bulletX);
 });
 
-test('the boss replaces normal waves and defeating it completes the mission exactly once', (t) => {
+test('each stage replaces waves with its own boss and victory requires all six bosses', (t) => {
   const sounds = [];
   const snapshots = [];
   const game = newGame(t, {
@@ -226,27 +232,57 @@ test('the boss replaces normal waves and defeating it completes the mission exac
     onChange: (snapshot) => snapshots.push(snapshot),
   });
   game.start();
-  game.enemies.push(enemy(800));
-  game.enemyBullets.push(hostileShot(700, 400));
-  game.elapsed = 65.99;
-  game.update(0.05);
-  assert.equal(game.sector, 3);
-  assert(game.boss);
-  assert.equal(game.enemies.length, 0);
-  assert.equal(game.enemyBullets.length, 0);
-  assert(sounds.includes('boss'));
-  const boss = game.boss;
-  boss.x = 1020;
-  boss.hp = 1;
-  game.bullets.push({ x: boss.x, y: boss.y, vx: 0, vy: 0, radius: 10, damage: 2, life: 1 });
-  game.update(0.01);
+  game.player.invulnerable = 999;
+  const defeated = [];
+  assert.equal(STAGES.length, 6);
+  assert.equal(new Set(STAGES.map((stage) => stage.boss.type)).size, STAGES.length);
+  for (let index = 0; index < STAGES.length; index++) {
+    assert.equal(game.stageIndex, index);
+    assert.equal(game.sector, index + 1);
+    game.enemies.push(enemy(800));
+    game.enemyBullets.push(hostileShot(700, 400));
+    game.stageElapsed = STAGES[index].waveDuration - 0.01;
+    game.update(0.05);
+    assert(game.boss);
+    assert.equal(game.boss.type, STAGES[index].boss.type);
+    assert.equal(game.boss.name, STAGES[index].boss.name);
+    assert.equal(game.enemies.length, 0);
+    assert.equal(game.enemyBullets.length, 0);
+    const boss = game.boss;
+    defeated.push(boss.type);
+    boss.x = 1020;
+    boss.hp = 1;
+    game.bullets.push({ x: boss.x, y: boss.y, vx: 0, vy: 0, radius: 10, damage: 2, life: 1 });
+    game.update(0.01);
+    assert.equal(game.boss, null);
+    assert.equal(game.state, index === STAGES.length - 1 ? 'victory' : 'intermission');
+    assert(Math.abs(game.progress - (index + 1) / STAGES.length) < 1e-8);
+    const stageScore = game.score;
+    const finishTime = game.elapsed;
+    advance(game, 1);
+    assert.equal(game.score, stageScore);
+    assert.equal(game.elapsed, finishTime);
+    if (index < STAGES.length - 1) {
+      game.player.hp = 2;
+      game.player.weapon = 3;
+      game.player.bombs = 0;
+      game.start();
+      assert.equal(game.state, 'playing');
+      assert.equal(game.player.hp, 3);
+      assert.equal(game.player.weapon, 3);
+      assert.equal(game.player.bombs, 1);
+      assert.equal(game.stageElapsed, 0);
+      assert.equal(game.enemies.length + game.enemyBullets.length + game.bullets.length, 0);
+    }
+  }
   assert.equal(game.state, 'victory');
-  assert.equal(game.boss, null);
   assert.equal(game.progress, 1);
-  assert.equal(game.score, 5000);
+  assert.deepEqual(game.defeatedBosses, defeated);
+  assert.equal(sounds.filter((sound) => sound === 'boss').length, STAGES.length);
   const finishTime = game.elapsed;
+  const finalScore = game.score;
   advance(game, 2);
-  assert.equal(game.score, 5000);
+  assert.equal(game.score, finalScore);
   assert.equal(game.elapsed, finishTime);
   assert.equal(sounds.filter((sound) => sound === 'victory').length, 1);
   assert(snapshots.some((snapshot) => snapshot.state === 'victory' && snapshot.progress === 1));
@@ -422,4 +458,222 @@ test('arrow keys keep their native scrolling behavior outside an active mission'
   game.pause();
   assert.equal(key('ArrowDown').defaultPrevented, false);
   assert.equal(game.input.down, false);
+});
+
+test('temporary weapons replace one another, produce distinct shots and expire back to the upgraded blaster', (t) => {
+  const game = newGame(t);
+  game.start();
+  game._spawnTimer = Infinity;
+  game.player.weapon = 3;
+  for (const type of ['laser', 'spread', 'homing']) {
+    game.bullets = [];
+    collect(game, type);
+    assert.equal(game.player.power, type);
+    assert(game.player.powerTime >= POWERS[type].duration - 0.01);
+    game.player.fireCooldown = 0;
+    game.setInput('fire', true);
+    game.update(0.01);
+    game.setInput('fire', false);
+    assert(game.bullets.length > 0);
+    assert(game.bullets.every((bullet) => bullet.kind === type));
+    if (type === 'spread') assert.equal(game.bullets.length, 5);
+    if (type === 'laser') assert(game.bullets.every((bullet) => bullet.pierce === 3));
+  }
+  advance(game, POWERS.homing.duration + 0.1);
+  assert.equal(game.player.power, 'blaster');
+  assert.equal(game.player.powerTime, 0);
+  assert.equal(game.player.weapon, 3);
+});
+
+test('laser pierces three enemies and guided missiles actually turn toward a target', (t) => {
+  const laser = newGame(t);
+  laser.start();
+  laser._spawnTimer = Infinity;
+  collect(laser, 'laser');
+  laser.enemies = [380, 480, 580, 680].map((x) => enemy(x, { hp: 1 }));
+  laser.setInput('fire', true);
+  laser.update(0.01);
+  laser.setInput('fire', false);
+  advance(laser, 0.65);
+  assert.deepEqual(laser.enemies.map((target) => target.id), [680]);
+  assert.equal(laser.kills, 3);
+
+  const guided = newGame(t);
+  guided.start();
+  guided._spawnTimer = Infinity;
+  collect(guided, 'homing');
+  guided.enemies = [enemy(700, { y: 100, hp: 100 })];
+  guided.setInput('fire', true);
+  guided.update(0.01);
+  guided.setInput('fire', false);
+  advance(guided, 0.2);
+  assert(guided.bullets.some((bullet) => bullet.kind === 'homing' && bullet.vy < -20 && bullet.y < 290));
+});
+
+test('rapid fire increases cadence and combines with a temporary weapon', (t) => {
+  const counts = [false, true].map((rapid) => {
+    let shots = 0;
+    const game = newGame(t, { onSound: (sound) => { if (sound === 'shoot') shots++; } });
+    game.start();
+    game._spawnTimer = Infinity;
+    collect(game, 'laser');
+    if (rapid) collect(game, 'rapid');
+    game.setInput('fire', true);
+    advance(game, 5);
+    assert.equal(game.player.power, 'laser');
+    return shots;
+  });
+  assert(counts[1] >= counts[0] * 1.6, `normal/rapid shot counts: ${counts}`);
+});
+
+test('barrier absorbs two impacts before damage reaches the ship and expires on time', (t) => {
+  const game = newGame(t);
+  game.start();
+  game._spawnTimer = Infinity;
+  collect(game, 'shield');
+  assert.equal(game.player.shieldHits, 2);
+  for (let hit = 0; hit < 3; hit++) {
+    game.player.invulnerable = 0;
+    game.enemyBullets = [hostileShot(game.player.x, game.player.y)];
+    game.update(0.01);
+    assert.equal(game.player.hp, hit < 2 ? 4 : 3);
+  }
+  collect(game, 'shield');
+  advance(game, POWERS.shield.duration + 0.1);
+  assert.equal(game.player.shieldTime, 0);
+  assert.equal(game.player.shieldHits, 0);
+});
+
+test('bomb clears hostile fire, damages visible targets, costs one charge per press and respects the inventory cap', (t) => {
+  const game = newGame(t);
+  assert.equal(game.player.bombs, 2);
+  game.useBomb();
+  assert.equal(game.player.bombs, 2);
+  game.start();
+  game._spawnTimer = Infinity;
+  game.enemies = [enemy(600, { hp: 5 }), enemy(1400, { hp: 5 })];
+  game.enemyBullets = [hostileShot(500, 300), hostileShot(600, 200)];
+  game.setInput('bomb', true, 'key:KeyC');
+  assert.equal(game.player.bombs, 1);
+  assert.equal(game.enemyBullets.length, 0);
+  assert(!game.enemies.some((target) => target.id === 600 && target.hp > 0));
+  assert.equal(game.enemies.find((target) => target.id === 1400).hp, 5);
+  const score = game.score;
+  game.setInput('bomb', true, 'key:KeyC');
+  assert.equal(game.player.bombs, 1);
+  assert.equal(game.score, score);
+  game.setInput('bomb', false, 'key:KeyC');
+  collect(game, 'bomb'); collect(game, 'bomb'); collect(game, 'bomb');
+  assert.equal(game.player.bombs, 3);
+  game.pause();
+  game.useBomb();
+  assert.equal(game.player.bombs, 3);
+});
+
+test('bomb damages an engaged boss but cannot hit an offscreen boss or be used with no ammunition', (t) => {
+  const game = newGame(t);
+  game.start();
+  game._spawnBoss();
+  const initialHp = game.boss.hp;
+  game.useBomb();
+  assert.equal(game.boss.hp, initialHp);
+  game.boss.x = 1020;
+  game.boss.entering = false;
+  game.useBomb();
+  assert.equal(game.boss.hp, initialHp - 90);
+  assert.equal(game.player.bombs, 0);
+  game.useBomb();
+  assert.equal(game.boss.hp, initialHp - 90);
+});
+
+test('a bomb can finish a boss without losing stage progress and its visual pulse fades during the interval', (t) => {
+  const game = newGame(t);
+  game.start();
+  game._spawnBoss();
+  game.boss.x = 1020;
+  game.boss.hp = 80;
+  game.useBomb();
+  assert.equal(game.state, 'intermission');
+  assert.equal(game.boss, null);
+  assert.equal(game.progress, 1 / STAGES.length);
+  assert.equal(game.stageProgress, 1);
+  assert.equal(game.defeatedBosses.length, 1);
+  assert.equal(game.player.bombs, 1);
+  advance(game, 1.5);
+  assert.equal(game.bombPulse, 0);
+  assert.equal(game.progress, 1 / STAGES.length);
+});
+
+test('every new power is obtainable from the actual enemy drop cycle', (t) => {
+  const game = newGame(t);
+  game.start();
+  game._spawnTimer = Infinity;
+  const found = new Set();
+  for (let index = 1; index <= 60; index++) {
+    game.enemies = [enemy(400, { hp: 1, id: index })];
+    game.bullets = [{ x: 400, y: 300, vx: 0, vy: 0, radius: 4, damage: 1, life: 1 }];
+    game.update(0.001);
+    for (const pickup of game.pickups) found.add(pickup.type);
+    game.pickups = [];
+  }
+  for (const type of POWER_DROP_CYCLE) assert(found.has(type), `Missing drop: ${type}`);
+});
+
+test('all power timers freeze in pause and between stages', (t) => {
+  const game = newGame(t);
+  game.start();
+  game._spawnTimer = Infinity;
+  collect(game, 'homing'); collect(game, 'rapid'); collect(game, 'shield');
+  const timers = () => [game.player.powerTime, game.player.rapidTime, game.player.shieldTime];
+  game.pause();
+  const paused = timers();
+  advance(game, 3);
+  assert.deepEqual(timers(), paused);
+  game.start();
+  game._spawnBoss();
+  game.boss.x = 1020;
+  game.boss.hp = 1;
+  game.bullets = [{ x: game.boss.x, y: game.boss.y, vx: 0, vy: 0, radius: 10, damage: 2, life: 1 }];
+  game.update(0.01);
+  assert.equal(game.state, 'intermission');
+  const betweenStages = timers();
+  advance(game, 3);
+  assert.deepEqual(timers(), betweenStages);
+});
+
+test('all six bosses attack, carrier sends support, forge warns before firing and prism shots bounce', (t) => {
+  for (let stageIndex = 0; stageIndex < STAGES.length; stageIndex++) {
+    const game = newGame(t);
+    game.start();
+    game.stageIndex = stageIndex;
+    game.sector = stageIndex + 1;
+    game.player.invulnerable = 999;
+    game._spawnBoss();
+    game.boss.x = 1020;
+    game.boss.entering = false;
+    let sawBullet = false, sawSupport = false, sawWarning = false, sawBeam = false, sawBounce = false;
+    const positions = [];
+    for (let frame = 0; frame < 240; frame++) {
+      game.update(0.05);
+      positions.push(game.boss.y);
+      sawBullet ||= game.enemyBullets.length > 0;
+      sawSupport ||= game.enemies.length > 0;
+      sawWarning ||= Boolean(game.boss.telegraph);
+      sawBeam ||= game.enemyBullets.some((bullet) => bullet.kind === 'beam');
+      sawBounce ||= game.enemyBullets.some((bullet) => bullet.kind === 'ricochet' && bullet.bounces > 0);
+      for (const bullet of game.enemyBullets) assert(Number.isFinite(bullet.x) && Number.isFinite(bullet.y));
+    }
+    assert(sawBullet, `Boss does not attack: ${game.stage.boss.type}`);
+    if (game.boss.type === 'carrier') assert(sawSupport);
+    if (game.boss.type === 'serpent') assert(Math.max(...positions) - Math.min(...positions) > 200);
+    if (game.boss.type === 'forge') assert(sawWarning && sawBeam);
+    if (game.boss.type === 'prism') assert(sawBounce);
+  }
+  const game = newGame(t);
+  game.start();
+  game._spawnTimer = Infinity;
+  game.enemyBullets = [hostileShot(800, 590, { vy: 300, bounces: 2, kind: 'ricochet' })];
+  game.update(0.05);
+  assert(game.enemyBullets[0].vy < 0);
+  assert.equal(game.enemyBullets[0].bounces, 1);
 });

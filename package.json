@@ -1,5 +1,5 @@
 {
-  "name": "rtype-nebula",
+  "name": "rtype-local",
   "version": "1.0.0",
   "private": true,
   "description": "Um arcade espacial de tiro lateral inspirado em R-Type.",
